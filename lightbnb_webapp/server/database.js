@@ -119,15 +119,54 @@ const getAllProperties = function(options, limit = 10) {
   //   limitedProperties[i] = properties[i];
   // }
   // return Promise.resolve(limitedProperties);
-  return pool
-    .query(`SELECT * FROM properties LIMIT $1`, [limit])
-    .then((result) => {
-      return result.rows;
-    })
-    .catch((err) => {
-      console.log(err.message);
-    });
 
+  const queryParams = [];
+  let queryString = `
+  SELECT properties.*, AVG(property_reviews.rating) AS average_rating
+  FROM properties
+  JOIN property_reviews ON properties.id = property_id
+  `;
+  let where = 0; 
+  if (options.city) {
+    let lowerCity = (options.city).toLowerCase();
+    queryParams.push(`%${lowerCity}%`);
+    queryString += `WHERE LOWER(city) LIKE $${queryParams.length} `; 
+    // use LOWER and toLowerCase in order to make no case sensitive while user inputting city name.
+    where = 1;
+  }
+
+  if (options.owner_id) {
+    queryParams.push(`${options.owner_id}`);
+    queryString += `WHERE owner_id = $${queryParams.length} `;
+  }
+
+  if (options.minimum_price_per_night && options.maximum_price_per_night) {
+    queryParams.push(`${options.minimum_price_per_night}`);
+    queryParams.push(`${options.maximum_price_per_night}`);
+    if (where === 1) {
+      queryString += `AND cost_per_night BETWEEN  $${queryParams.length - 1} * 100 AND $${queryParams.length} * 100`;
+    } else {
+      queryString += `WHERE cost_per_night BETWEEN  $${queryParams.length - 1} * 100 AND $${queryParams.length} * 100`;   
+      where = 1;  
+    }
+  }
+  
+  queryString += `
+  GROUP BY properties.id
+  `;
+
+  if (options.minimum_rating) {
+    queryParams.push(`${options.minimum_rating}`);
+    queryString += `HAVING AVG(property_reviews.rating) >= $${queryParams.length} `;
+  }
+
+  queryParams.push(limit);
+  queryString += `
+  ORDER BY cost_per_night
+  LIMIT $${queryParams.length};
+  `;
+  console.log(queryString, queryParams);
+  return pool.query(queryString, queryParams).then((res) => res.rows);
 }
 exports.getAllProperties = getAllProperties;
 
